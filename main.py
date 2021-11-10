@@ -3,6 +3,8 @@ import spacy
 import numpy as np
 import pandas
 import string
+import gensim
+import re
 # import IPython
 from spacy import displacy
 from nltk import pos_tag
@@ -15,10 +17,10 @@ from nltk.corpus import stopwords
 def addNounToDict(noun, dictionary, indexSource):
     if noun in dictionary:
         dictionary[noun][0] = dictionary[noun][0] + 1
-        dictionary[noun][1].append(indexSource)
+        dictionary[noun][1].add(indexSource)
     else:
-        dictionary[noun] = [1, []]
-        dictionary[noun][1].append(indexSource)
+        dictionary[noun] = [1, set()]
+        dictionary[noun][1].add(indexSource)
 
 
 # Parses dependencies for noun in document and returns descriptors
@@ -41,6 +43,8 @@ depParser = spacy.load("en_core_web_sm")
 # Read in data
 print("reading in data...")
 initialDF = pandas.read_csv("reddit_pfizer_vaccine.csv", usecols=['body'])
+initialDF.dropna(inplace=True)
+initialDF.reset_index(inplace=True, drop=True)
 
 # Go through DF and retrieve all instances of nouns from text, with DF indices appended
 print("retrieving noun instances...")
@@ -85,11 +89,12 @@ while True:
         print("Please pick a word from the list.")
 
 # Get all modifiers for every instance of word
+print("retrieving modifiers...")
 selectedNoun = descNouns[inputWord]
 print(selectedNoun)
 nounInstances = selectedNoun[1]
 modifiers = set()
 for instance in nounInstances:
     modifiers.update(getDescriptors(inputWord, instance))
+modifiers = list(modifiers)
 print(modifiers)
-
