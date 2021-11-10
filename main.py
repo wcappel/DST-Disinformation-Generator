@@ -17,10 +17,10 @@ from nltk.corpus import stopwords
 def addNounToDict(noun, dictionary, indexSource):
     if noun in dictionary:
         dictionary[noun][0] = dictionary[noun][0] + 1
-        dictionary[noun][1].add(indexSource)
+        dictionary[noun][1].append(indexSource)
     else:
-        dictionary[noun] = [1, set()]
-        dictionary[noun][1].add(indexSource)
+        dictionary[noun] = [1, []]
+        dictionary[noun][1].append(indexSource)
 
 
 # Load in dependency parser
@@ -84,7 +84,24 @@ while True:
     else:
         print("Please pick a word from the list.")
 
+
+def getDescriptors(noun, documentNumber):
+    descriptors = set()
+    instance = initialDF.body[documentNumber]
+    parsedTokens = depParser(instance)
+    for token in parsedTokens:
+        if stemmer.stem(token.head.text) == noun:
+            if token.dep_ == "amod":
+                descriptors.add(token.text)
+    return descriptors
+
+
 selectedNoun = descNouns[inputWord]
-# print(selectedNoun)
+print(selectedNoun)
 nounInstances = selectedNoun[1]
-# for instance in nounInstances:
+modifiers = set()
+for instance in nounInstances:
+    modifiers.update(getDescriptors(inputWord, instance))
+
+print(modifiers)
+
