@@ -1,19 +1,17 @@
 import nltk
 import spacy
 import numpy as np
-import tensorflow as tf
 import pandas
 import string
 # import IPython
 from spacy import displacy
-from tensorflow import keras
 from nltk import pos_tag
 from nltk.corpus import stopwords
-
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
 
 
+# Adds noun to dictionary with frequency and document source index
 def addNounToDict(noun, dictionary, indexSource):
     if noun in dictionary:
         dictionary[noun][0] = dictionary[noun][0] + 1
@@ -23,28 +21,29 @@ def addNounToDict(noun, dictionary, indexSource):
         dictionary[noun][1].append(indexSource)
 
 
+# Parses dependencies for noun in document and returns descriptors
+def getDescriptors(noun, documentNumber):
+    descriptors = set()
+    instance = initialDF.body[documentNumber]
+    parsedTokens = depParser(instance)
+    for token in parsedTokens:
+        if stemmer.stem(token.head.text) == noun:
+            if token.dep_ == "amod":
+                descriptors.add(token.text)
+    return descriptors
+
+
 # Load in dependency parser
+print("loading dependency parser...")
+print("Make sure 'en_core_web_sm' is downloaded from spacy, can use '/python -m spacy download en_core_web_sm'")
 depParser = spacy.load("en_core_web_sm")
 
-# Examples to think about
-sentence1 = "That shitty car."
-sentence2 = "This car is shitty."
-
-parsed1 = depParser(sentence1)
-parsed2 = depParser(sentence2)
-
-# Display parsed dependencies
-# splacy.serve(parsed1)
-# displacy.serve(parsed2)
-
 # Read in data
+print("reading in data...")
 initialDF = pandas.read_csv("reddit_pfizer_vaccine.csv", usecols=['body'])
 
-# tokens = nltk.word_tokenize(sentence1)
-# print(tokens)
-# tagged = nltk.pos_tag(tokens)
-# print(tagged)
-
+# Go through DF and retrieve all instances of nouns from text, with DF indices appended
+print("retrieving noun instances...")
 stemmer = nltk.PorterStemmer()
 stopWords = stopwords.words()
 nouns = {}
@@ -61,6 +60,7 @@ for index, row in initialDF.iterrows():
                 addNounToDict(stemmedNoun, nouns, index)
 
 # Sort noun dictionary by frequency
+print("sorting noun dictionary...")
 descNouns = {key: val for key, val in sorted(nouns.items(), key=lambda element: element[1], reverse=True)}
 # print(descNouns)
 
@@ -84,24 +84,12 @@ while True:
     else:
         print("Please pick a word from the list.")
 
-
-def getDescriptors(noun, documentNumber):
-    descriptors = set()
-    instance = initialDF.body[documentNumber]
-    parsedTokens = depParser(instance)
-    for token in parsedTokens:
-        if stemmer.stem(token.head.text) == noun:
-            if token.dep_ == "amod":
-                descriptors.add(token.text)
-    return descriptors
-
-
+# Get all modifiers for every instance of word
 selectedNoun = descNouns[inputWord]
 print(selectedNoun)
 nounInstances = selectedNoun[1]
 modifiers = set()
 for instance in nounInstances:
     modifiers.update(getDescriptors(inputWord, instance))
-
 print(modifiers)
 
