@@ -23,6 +23,16 @@ def addNounToDict(noun, dictionary, indexSource):
         dictionary[noun][1].append(indexSource)
 
 
+def getDescriptors(noun, documentNumber):
+    descriptors = set()
+    instance = initialDF.body[documentNumber]
+    parsedTokens = depParser(instance)
+    for token in parsedTokens:
+        if stemmer.stem(token.head.text) == noun:
+            if token.dep_ == "amod":
+                descriptors.add(token.text)
+    return descriptors
+
 # Load in dependency parser
 depParser = spacy.load("en_core_web_sm")
 
@@ -84,24 +94,12 @@ while True:
     else:
         print("Please pick a word from the list.")
 
-
-def getDescriptors(noun, documentNumber):
-    descriptors = set()
-    instance = initialDF.body[documentNumber]
-    parsedTokens = depParser(instance)
-    for token in parsedTokens:
-        if stemmer.stem(token.head.text) == noun:
-            if token.dep_ == "amod":
-                descriptors.add(token.text)
-    return descriptors
-
-
+# Get all modifiers for every instance of word
 selectedNoun = descNouns[inputWord]
 print(selectedNoun)
 nounInstances = selectedNoun[1]
 modifiers = set()
 for instance in nounInstances:
     modifiers.update(getDescriptors(inputWord, instance))
-
 print(modifiers)
 
