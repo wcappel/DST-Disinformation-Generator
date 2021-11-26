@@ -7,8 +7,8 @@ import gensim
 import re
 # import IPython
 from spacy import displacy
-from nltk import pos_tag
 from nltk.corpus import stopwords
+from gensim.models import Word2Vec
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
 
@@ -47,14 +47,26 @@ initialDF.dropna(inplace=True)
 initialDF.reset_index(inplace=True, drop=True)
 
 # Go through DF and retrieve all instances of nouns from text, with DF indices appended
+# Also formats sentences for word2vec
 print("retrieving noun instances...")
 stemmer = nltk.PorterStemmer()
 stopWords = stopwords.words()
 nouns = {}
+allSentences = []
+
 for index, row in initialDF.iterrows():
     row = row.astype(str)
     text = row['body']
     rowTokens = nltk.word_tokenize(text)
+    docSentences = nltk.sent_tokenize(text)
+    for sentence in docSentences:
+        processedSentence = []
+        sentence = "".join([char for char in sentence if char not in string.punctuation])
+        for word in sentence.split(" "):
+            if word not in stopWords:
+                # Maybe take out links too?
+                processedSentence.append(stemmer.stem(word))
+        allSentences.append(processedSentence)
     rowTags = nltk.pos_tag(rowTokens)
     for tag in rowTags:
         if tag[1] == "NN" or tag[1] == "NNS" or tag[1] == "NNP" or tag[1] == "NNPS":
@@ -63,13 +75,19 @@ for index, row in initialDF.iterrows():
                 stemmedNoun = stemmer.stem(removedPunct)
                 addNounToDict(stemmedNoun, nouns, index)
 
+# Train word2vec on all sentences
+W2V = gensim.models.Word2Vec(sentences=allSentences, window=4)
+
 # Sort noun dictionary by frequency
 print("sorting noun dictionary...")
 descNouns = {key: val for key, val in sorted(nouns.items(), key=lambda element: element[1], reverse=True)}
 # print(descNouns)
 
 # Get top ~25 words referenced and filter out punct.
-mostRef = list(descNouns.keys())[0:24]
+mostRef = list(descNouns.keys())[0:25]
+refDocs = list(descNouns.values())[0:25]
+refDocs = [x[1] for x in refDocs]
+
 for word in mostRef:
     if len(word) <= 1:
         mostRef.remove(word)
@@ -91,10 +109,11 @@ while True:
 # Get all modifiers for every instance of word
 print("retrieving modifiers...")
 selectedNoun = descNouns[inputWord]
-print(selectedNoun)
+# print(selectedNoun)
 nounInstances = selectedNoun[1]
 modifiers = set()
 for instance in nounInstances:
     modifiers.update(getDescriptors(inputWord, instance))
 modifiers = list(modifiers)
 print(modifiers)
+
