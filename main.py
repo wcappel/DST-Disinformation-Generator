@@ -5,12 +5,16 @@ import pandas
 import string
 import gensim
 import re
+import ssl
 # import IPython
-from spacy import displacy
 from nltk.corpus import stopwords
 from gensim.models import Word2Vec
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk import CFG
+from nltk.parse.generate import generate
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
+# nltk.download('vader_lexicon')
 
 
 # Adds noun to dictionary with frequency and document source index
@@ -21,18 +25,6 @@ def addNounToDict(noun, dictionary, indexSource):
     else:
         dictionary[noun] = [1, set()]
         dictionary[noun][1].add(indexSource)
-
-
-# Parses dependencies for noun in document and returns descriptors
-def getDescriptors(noun, documentNumber):
-    descriptors = set()
-    instance = initialDF.body[documentNumber]
-    parsedTokens = depParser(instance)
-    for token in parsedTokens:
-        if stemmer.stem(token.head.text) == noun:
-            if token.dep_ == "amod":
-                descriptors.add(token.text)
-    return descriptors
 
 
 # Load in dependency parser
@@ -53,6 +45,7 @@ stemmer = nltk.PorterStemmer()
 stopWords = stopwords.words()
 nouns = {}
 allSentences = []
+modSentences = []
 
 for index, row in initialDF.iterrows():
     row = row.astype(str)
@@ -64,9 +57,15 @@ for index, row in initialDF.iterrows():
         sentence = "".join([char for char in sentence if char not in string.punctuation])
         for word in sentence.split(" "):
             if word not in stopWords:
-                # Maybe take out links too?
                 processedSentence.append(stemmer.stem(word))
         allSentences.append(processedSentence)
+        sentenceDep = depParser(sentence)
+        hasModifier = False
+        for token in sentenceDep:
+            if token.dep_ == "amod":
+                hasModifier = True
+        if hasModifier:
+            modSentences.append(sentence)
     rowTags = nltk.pos_tag(rowTokens)
     for tag in rowTags:
         if tag[1] == "NN" or tag[1] == "NNS" or tag[1] == "NNP" or tag[1] == "NNPS":
@@ -75,8 +74,6 @@ for index, row in initialDF.iterrows():
                 stemmedNoun = stemmer.stem(removedPunct)
                 addNounToDict(stemmedNoun, nouns, index)
 
-# Train word2vec on all sentences
-W2V = gensim.models.Word2Vec(sentences=allSentences, window=4)
 
 # Sort noun dictionary by frequency
 print("sorting noun dictionary...")
@@ -106,14 +103,22 @@ while True:
     else:
         print("Please pick a word from the list.")
 
-# Get all modifiers for every instance of word
-print("retrieving modifiers...")
-selectedNoun = descNouns[inputWord]
-# print(selectedNoun)
-nounInstances = selectedNoun[1]
-modifiers = set()
-for instance in nounInstances:
-    modifiers.update(getDescriptors(inputWord, instance))
-modifiers = list(modifiers)
-print(modifiers)
+# Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
+sa = SentimentIntensityAnalyzer()
+negSentiment = []
+posSentiment = []
+for sentence in modSentences:
+    sentencePolarity = sa.polarity_scores(sentence)
+    if sentencePolarity['compound'] >= 0.7:
+        posSentiment.append(sentence)
+    elif sentencePolarity['compound'] <= -0.7:
+        negSentiment.append(sentence)
+print(negSentiment)
 
+# Pos tag and convert Noun Phrases to CFG
+
+# Use two embedding matrices to harness descriptors for pos. and neg.?
+
+# Create CFG rules w/ specific noun and desired descriptors
+
+# Generate w/ CFG
