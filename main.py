@@ -5,13 +5,15 @@ import pandas
 import string
 import gensim
 import re
-import ssl
+import random
+import sys
 # import IPython
 from nltk.corpus import stopwords
 from gensim.models import Word2Vec
 from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk import CFG
 from nltk.parse.generate import generate
+from nltk.parse.recursivedescent import RecursiveDescentParser
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
 # nltk.download('vader_lexicon')
@@ -105,20 +107,57 @@ while True:
 
 # Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
 sa = SentimentIntensityAnalyzer()
-negSentiment = []
-posSentiment = []
+negSentences = []
+posSentences = []
+negModifiers = set()
+posModifiers = set()
 for sentence in modSentences:
     sentencePolarity = sa.polarity_scores(sentence)
-    if sentencePolarity['compound'] >= 0.7:
-        posSentiment.append(sentence)
-    elif sentencePolarity['compound'] <= -0.7:
-        negSentiment.append(sentence)
-print(negSentiment)
-
-# Pos tag and convert Noun Phrases to CFG
-
-# Use two embedding matrices to harness descriptors for pos. and neg.?
+    if sentencePolarity['compound'] >= 0.9:
+        posSentences.append(sentence)
+        sentenceDep = depParser(sentence)
+        for token in sentenceDep:
+            if token.dep_ == "amod":
+                posModifiers.add(token.text)
+    elif sentencePolarity['compound'] <= -0.9:
+        negSentences.append(sentence)
+        sentenceDep = depParser(sentence)
+        for token in sentenceDep:
+            if token.dep_ == "amod":
+                negModifiers.add(token.text)
 
 # Create CFG rules w/ specific noun and desired descriptors
+grammarString = """
+S -> NP VP
+NP -> Det Nom
+Nom -> N | Adj N
+VP -> V Adj | V
+V -> 'is' | 'was'
+Det -> 'the' | 'that'
+"""
+grammarString += "\nN -> '" + inputWord + "'"
+posString = grammarString
+negString = grammarString
+for mod in posModifiers:
+    posString += "\nAdj -> '" + mod + "'"
 
-# Generate w/ CFG
+for mod in negModifiers:
+    negString += "\nAdj -> '" + mod + "'"
+
+posGrammar = CFG.fromstring(posString)
+negGrammar = CFG.fromstring(negString)
+
+# Generate sentences w/ CFG rules
+generatedNeg = list(generate(negGrammar, n=sys.maxsize))
+random.shuffle(generatedNeg)
+scoredNeg = set()
+for sentence in generatedNeg:
+    sentence = ' '.join(sentence)
+    if sa.polarity_scores(sentence)['compound'] <= -0.7:
+        scoredNeg.add(sentence)
+print(list(scoredNeg))
+print(len(list(scoredNeg)))
+
+# Pos tag and convert Noun Phrases to CFG?
+
+# Use two embedding matrices to harness descriptors for pos. and neg.?
