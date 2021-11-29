@@ -3,17 +3,13 @@ import spacy
 import numpy as np
 import pandas
 import string
-import gensim
-import re
 import random
 import sys
-# import IPython
-from nltk.corpus import stopwords
-from gensim.models import Word2Vec
-from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk import CFG
+from nltk.corpus import stopwords
 from nltk.parse.generate import generate
-from nltk.parse.recursivedescent import RecursiveDescentParser
+from nltk.sentiment import SentimentIntensityAnalyzer
+from spacy.matcher import Matcher
 # nltk.download('punkt')
 # nltk.download('averaged_perceptron_tagger')
 # nltk.download('vader_lexicon')
@@ -48,6 +44,7 @@ stopWords = stopwords.words()
 nouns = {}
 allSentences = []
 modSentences = []
+punct = string.punctuation
 
 for index, row in initialDF.iterrows():
     row = row.astype(str)
@@ -55,26 +52,16 @@ for index, row in initialDF.iterrows():
     rowTokens = nltk.word_tokenize(text)
     docSentences = nltk.sent_tokenize(text)
     for sentence in docSentences:
-        processedSentence = []
-        sentence = "".join([char for char in sentence if char not in string.punctuation])
-        for word in sentence.split(" "):
-            if word not in stopWords:
-                processedSentence.append(stemmer.stem(word))
-        allSentences.append(processedSentence)
-        sentenceDep = depParser(sentence)
-        hasModifier = False
-        for token in sentenceDep:
-            if token.dep_ == "amod":
-                hasModifier = True
-        if hasModifier:
-            modSentences.append(sentence)
+        sentence = "".join([char for char in sentence if char not in punct])
+        allSentences.append(sentence.lower())
     rowTags = nltk.pos_tag(rowTokens)
     for tag in rowTags:
         if tag[1] == "NN" or tag[1] == "NNS" or tag[1] == "NNP" or tag[1] == "NNPS":
             if tag[0] not in stopWords and len(tag[0]) <= 12:
-                removedPunct = "".join([char for char in tag[0] if char not in string.punctuation])
+                removedPunct = "".join([char for char in tag[0] if char not in punct])
                 stemmedNoun = stemmer.stem(removedPunct)
                 addNounToDict(stemmedNoun, nouns, index)
+    # Put and adjust pos tagging step in per-sentence loop
 
 
 # Sort noun dictionary by frequency
@@ -107,31 +94,65 @@ while True:
 
 # Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
 sa = SentimentIntensityAnalyzer()
-negSentences = []
-posSentences = []
+negSentences = set()
+posSentences = set()
 negModifiers = set()
 posModifiers = set()
-for sentence in modSentences:
+for sentence in allSentences:
     sentencePolarity = sa.polarity_scores(sentence)
-    if sentencePolarity['compound'] >= 0.9:
-        posSentences.append(sentence)
+    if sentencePolarity['compound'] >= 0.8:
+        posSentences.add(sentence)
         sentenceDep = depParser(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
-                posModifiers.add(token.text)
-    elif sentencePolarity['compound'] <= -0.9:
-        negSentences.append(sentence)
+                posModifiers.add(token.text.lower())
+    elif sentencePolarity['compound'] <= -0.8:
+        negSentences.add(sentence)
         sentenceDep = depParser(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
-                negModifiers.add(token.text)
+                negModifiers.add(token.text.lower())
+
+# Patterns for verb phrases
+VP = [[{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}, {"POS": "ADJ"}],
+      [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}], [{"POS": "VERB"}, {"POS": "NOUN"}, {"POS": "NOUN"}],
+      [{"POS": "VERB"}, {"POS": "DET"}, {"POS": "NOUN"}], [{"POS": "VERB"}, {"POS": "DET"}, {"POS": "NOUN"}, {"POS": "NOUN"}],
+      [{"POS": "VERB"}, {"POS": "PRON"}], [{"POS": "VERB"}, {"POS": "PRON"}], [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}],
+      [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}, {"POS": "ADJ"}]]
+
+VR = [[{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "NOUN"}], [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "PRON"}],
+       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "DET"}, {"POS": "NOUN"}],
+       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "ADJ"}, {"POS": "NOUN"}],
+       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "NOUN"}, {"POS": "NOUN"}]]
+
+vpMatcher = Matcher(depParser.vocab)
+vpMatcher.add("VP", VP)
+vrMatcher = Matcher(depParser.vocab)
+vrMatcher.add("VR", VR)
+
+# Extract verb phrases from negative and positive sentences
+negVP = set()
+negVR = set()
+for sentence in list(negSentences):
+    sentence = depParser(sentence)
+    vpMatches = vpMatcher(sentence)
+    vrMatches = vrMatcher(sentence)
+    for match_id, start, end in vpMatches:
+        span = sentence[start:end]
+        negVP.add(span.text)
+    for match_id, start, end in vrMatches:
+        span = sentence[start:end]
+        negVR.add(span.text)
+
+print(list(negVP))
+print(list(negVR))
 
 # Create CFG rules w/ specific noun and desired descriptors
 grammarString = """
 S -> NP VP
 NP -> Det Nom
 Nom -> N | Adj N
-VP -> V Adj | V
+VP -> V Adj | V | V 
 V -> 'is' | 'was'
 Det -> 'the' | 'that'
 """
@@ -153,11 +174,10 @@ random.shuffle(generatedNeg)
 scoredNeg = set()
 for sentence in generatedNeg:
     sentence = ' '.join(sentence)
-    if sa.polarity_scores(sentence)['compound'] <= -0.7:
+    if sa.polarity_scores(sentence)['compound'] <= -0.6:
         scoredNeg.add(sentence)
 print(list(scoredNeg))
-print(len(list(scoredNeg)))
 
 # Pos tag and convert Noun Phrases to CFG?
 
-# Use two embedding matrices to harness descriptors for pos. and neg.?
+# Use two embedding matrices to harness descriptors for pos. and neg.? Yes, probably do this.
