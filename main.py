@@ -42,7 +42,7 @@ print("retrieving noun instances...")
 stemmer = nltk.PorterStemmer()
 stopWords = stopwords.words()
 nouns = {}
-allSentences = []
+allSentences = set()
 modSentences = []
 punct = string.punctuation
 
@@ -53,7 +53,7 @@ for index, row in initialDF.iterrows():
     docSentences = nltk.sent_tokenize(text)
     for sentence in docSentences:
         sentence = "".join([char for char in sentence if char not in punct])
-        allSentences.append(sentence.lower())
+        allSentences.add(sentence.lower())
     rowTags = nltk.pos_tag(rowTokens)
     for tag in rowTags:
         if tag[1] == "NN" or tag[1] == "NNS" or tag[1] == "NNP" or tag[1] == "NNPS":
@@ -94,69 +94,86 @@ while True:
 
 # Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
 sa = SentimentIntensityAnalyzer()
+allSentences = list(allSentences)
 negSentences = set()
 posSentences = set()
 negModifiers = set()
 posModifiers = set()
 for sentence in allSentences:
     sentencePolarity = sa.polarity_scores(sentence)
-    if sentencePolarity['compound'] >= 0.8:
+    if sentencePolarity['compound'] >= 0.5:
         posSentences.add(sentence)
         sentenceDep = depParser(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
                 posModifiers.add(token.text.lower())
-    elif sentencePolarity['compound'] <= -0.8:
+    elif sentencePolarity['compound'] <= -0.5:
         negSentences.add(sentence)
         sentenceDep = depParser(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
                 negModifiers.add(token.text.lower())
 
-# Patterns for verb phrases
-VP = [[{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}, {"POS": "ADJ"}],
-      [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}], [{"POS": "VERB"}, {"POS": "NOUN"}, {"POS": "NOUN"}],
-      [{"POS": "VERB"}, {"POS": "DET"}, {"POS": "NOUN"}], [{"POS": "VERB"}, {"POS": "DET"}, {"POS": "NOUN"}, {"POS": "NOUN"}],
-      [{"POS": "VERB"}, {"POS": "PRON"}], [{"POS": "VERB"}, {"POS": "PRON"}], [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}],
-      [{"POS": "VERB"}, {"POS": "PRON"}, {"POS": "VERB"}, {"POS": "ADJ"}]]
+# Patterns for verb phrases and preposition phrases
+VP = [[{"POS": "ADV", "OP": "?"}, {"POS": "VERB", "OP": "+"}, {"POS": "PRON"}, {"POS": "VERB", "OP": "*"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "?"}, {"POS": "PRON", "OP": "?"}],
+      [{"POS": "ADV", "OP": "?"}, {"POS": "VERB", "OP": "+"}, {"POS": "DET", "OP": "*"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}]]
 
-VR = [[{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "NOUN"}], [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "PRON"}],
-       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "DET"}, {"POS": "NOUN"}],
-       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "ADJ"}, {"POS": "NOUN"}],
-       [{"POS": "VERB"}, {"POS": "ADP"}, {"POS": "NOUN"}, {"POS": "NOUN"}]]
+PP = [[{"POS": "ADP"}, {"POS": "DET", "OP": "?"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}],
+      [{"POS": "ADP"}, {"POS": "DET", "OP": "?"}, {"POS": "ADJ", "OP": "*"}, {"POS": "PRON"}]]
 
 vpMatcher = Matcher(depParser.vocab)
 vpMatcher.add("VP", VP)
-vrMatcher = Matcher(depParser.vocab)
-vrMatcher.add("VR", VR)
+ppMatcher = Matcher(depParser.vocab)
+ppMatcher.add("PP", PP)
 
 # Extract verb phrases from negative and positive sentences
 negVP = set()
-negVR = set()
-for sentence in list(negSentences):
+negPP = set()
+posVP = set()
+posPP = set()
+for sentence in negSentences:
     sentence = depParser(sentence)
     vpMatches = vpMatcher(sentence)
-    vrMatches = vrMatcher(sentence)
+    ppMatches = ppMatcher(sentence)
     for match_id, start, end in vpMatches:
         span = sentence[start:end]
-        negVP.add(span.text)
-    for match_id, start, end in vrMatches:
+        phrasePol = sa.polarity_scores(span.text)
+        if phrasePol['compound'] <= -0.5:
+            negVP.add(span.text)
+    for match_id, start, end in ppMatches:
         span = sentence[start:end]
-        negVR.add(span.text)
+        phrasePol = sa.polarity_scores(span.text)
+        if phrasePol['compound'] <= -0.5:
+            negPP.add(span.text)
+
+for sentence in posSentences:
+    sentence = depParser(sentence)
+    vpMatches = vpMatcher(sentence)
+    ppMatches = ppMatcher(sentence)
+    for match_id, start, end in vpMatches:
+        span = sentence[start:end]
+        phrasePol = sa.polarity_scores(span.text)
+        if phrasePol['compound'] <= -0.7:
+            posVP.add(span.text)
+    for match_id, start, end in ppMatches:
+        span = sentence[start:end]
+        phrasePol = sa.polarity_scores(span.text)
+        if phrasePol['compound'] <= -0.7:
+            posPP.add(span.text)
 
 print(list(negVP))
-print(list(negVR))
+print(list(negPP))
 
 # Create CFG rules w/ specific noun and desired descriptors
 grammarString = """
-S -> NP VP
-NP -> Det Nom
-Nom -> N | Adj N
-VP -> V Adj | V | V 
-V -> 'is' | 'was'
-Det -> 'the' | 'that'
+S -> XP VP | XP VP PP
+XP -> Det Nom | Nom
+Nom -> X | Adj X
+VP -> V Adj
+V -> 'is'
+Det -> 'the'
 """
-grammarString += "\nN -> '" + inputWord + "'"
+grammarString += "\nX -> '" + inputWord + "'"
 posString = grammarString
 negString = grammarString
 for mod in posModifiers:
@@ -165,18 +182,38 @@ for mod in posModifiers:
 for mod in negModifiers:
     negString += "\nAdj -> '" + mod + "'"
 
+for phrase in list(negVP):
+    negString += "\nVP -> '" + phrase + "'"
+
+for phrase in list(posVP):
+    posString += "\nVP -> '" + phrase + "'"
+
+for phrase in list(negPP):
+    negString += "\nPP -> '" + phrase + "'"
+
+for phrase in list(posPP):
+    posString += "\nPP -> '" + phrase + "'"
+
 posGrammar = CFG.fromstring(posString)
 negGrammar = CFG.fromstring(negString)
 
 # Generate sentences w/ CFG rules
-generatedNeg = list(generate(negGrammar, n=sys.maxsize))
+print("generating text...")
+generatedNeg = list(generate(negGrammar, n=100000))
+generatedPos = list(generate(posGrammar, n=100000))
 random.shuffle(generatedNeg)
+random.shuffle(generatedPos)
 scoredNeg = set()
+scoredPos = set()
 for sentence in generatedNeg:
     sentence = ' '.join(sentence)
     if sa.polarity_scores(sentence)['compound'] <= -0.6:
         scoredNeg.add(sentence)
-print(list(scoredNeg))
+for sentence in generatedPos:
+    sentence = ' '.join(sentence)
+    if sa.polarity_scores(sentence)['compound'] >= 0.6:
+        scoredPos.add(sentence)
+print(list(scoredPos))
 
 # Pos tag and convert Noun Phrases to CFG?
 
