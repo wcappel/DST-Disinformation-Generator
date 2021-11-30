@@ -1,10 +1,8 @@
 import nltk
 import spacy
-import numpy as np
 import pandas
 import string
 import random
-import sys
 from nltk import CFG
 from nltk.corpus import stopwords
 from nltk.parse.generate import generate
@@ -28,7 +26,7 @@ def addNounToDict(noun, dictionary, indexSource):
 # Load in dependency parser
 print("loading dependency parser...")
 print("Make sure 'en_core_web_sm' is downloaded from spacy, can use '/python -m spacy download en_core_web_sm'")
-depParser = spacy.load("en_core_web_sm")
+spacyModel = spacy.load("en_core_web_sm")
 
 # Read in data
 print("reading in data...")
@@ -37,11 +35,12 @@ initialDF.dropna(inplace=True)
 initialDF.reset_index(inplace=True, drop=True)
 
 # Go through DF and retrieve all instances of nouns from text, with DF indices appended
-# Also formats sentences for word2vec
-print("retrieving noun instances...")
+# Also formats sentences for sentiment analysis and further PoS tagging for phrase extraction
+print("retrieving noun and named entity instances...")
 stemmer = nltk.PorterStemmer()
 stopWords = stopwords.words()
 nouns = {}
+namedEntities = {}
 allSentences = set()
 modSentences = []
 punct = string.punctuation
@@ -49,50 +48,57 @@ punct = string.punctuation
 for index, row in initialDF.iterrows():
     row = row.astype(str)
     text = row['body']
-    rowTokens = nltk.word_tokenize(text)
     docSentences = nltk.sent_tokenize(text)
     for sentence in docSentences:
+        sentenceDoc = spacyModel(sentence)
         sentence = "".join([char for char in sentence if char not in punct])
         allSentences.add(sentence.lower())
-    rowTags = nltk.pos_tag(rowTokens)
-    for tag in rowTags:
-        if tag[1] == "NN" or tag[1] == "NNS" or tag[1] == "NNP" or tag[1] == "NNPS":
-            if tag[0] not in stopWords and len(tag[0]) <= 12:
-                removedPunct = "".join([char for char in tag[0] if char not in punct])
-                stemmedNoun = stemmer.stem(removedPunct)
-                addNounToDict(stemmedNoun, nouns, index)
-    # Put and adjust pos tagging step in per-sentence loop
+        for token in sentenceDoc:
+            if token.pos_ == "NOUN" or token.pos_ == "PROPN":
+                if len(token.text[0]) <= 12:
+                    addNounToDict(token.text.lower(), nouns, index)
+        for ne in sentenceDoc.ents:
+            addNounToDict(ne.text.lower(), namedEntities, index)
 
 
 # Sort noun dictionary by frequency
-print("sorting noun dictionary...")
+print("sorting noun dictionaries...")
 descNouns = {key: val for key, val in sorted(nouns.items(), key=lambda element: element[1], reverse=True)}
-# print(descNouns)
+descNE = {key: val for key, val in sorted(namedEntities.items(), key=lambda element: element[1], reverse=True)}
 
-# Get top ~25 words referenced and filter out punct.
-mostRef = list(descNouns.keys())[0:25]
-refDocs = list(descNouns.values())[0:25]
-refDocs = [x[1] for x in refDocs]
+# Get top ~25 words and entities referenced and filter out punct.
+mostRefNouns = list(descNouns.keys())[0:25]
+refNounsDocs = list(descNouns.values())[0:25]
+refNounsDocs = [x[1] for x in refNounsDocs]
 
-for word in mostRef:
+mostRefNE = list(descNE.keys())[0:25]
+refNEDocs = list(descNE.values())[0:25]
+refNEDocs = [x[1] for x in refNEDocs]
+
+for word in mostRefNouns:
     if len(word) <= 1:
-        mostRef.remove(word)
+        mostRefNouns.remove(word)
+
+for word in mostRefNE:
+    if len(word) <= 1:
+        mostRefNE.remove(word)
 
 # Get user input for word to be used
-print("Most referenced nouns/entities: " + str(mostRef))
+print("Most referenced nouns: \n\t" + str(mostRefNouns) + "\n Most referenced entities: \n\t" + str(mostRefNE))
 inputWord = ""
 while True:
-    inputWord = input("Enter the word from the list you wish to use: ")
+    inputWord = input("Enter the word from either list that you wish to use: ")
     if type(inputWord) is str:
         inputWord = inputWord.lower()
-        if inputWord in mostRef:
+        if inputWord in mostRefNouns or inputWord in mostRefNE:
             break
         else:
-            print("Please pick a word from the list.")
+            print("Please pick a word from either list.")
     else:
-        print("Please pick a word from the list.")
+        print("Please pick a word from either list.")
 
 # Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
+print("running SA and retrieving modifiers...")
 sa = SentimentIntensityAnalyzer()
 allSentences = list(allSentences)
 negSentences = set()
@@ -101,15 +107,15 @@ negModifiers = set()
 posModifiers = set()
 for sentence in allSentences:
     sentencePolarity = sa.polarity_scores(sentence)
-    if sentencePolarity['compound'] >= 0.5:
+    if sentencePolarity['compound'] >= 0.4:
         posSentences.add(sentence)
-        sentenceDep = depParser(sentence)
+        sentenceDep = spacyModel(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
                 posModifiers.add(token.text.lower())
     elif sentencePolarity['compound'] <= -0.5:
         negSentences.add(sentence)
-        sentenceDep = depParser(sentence)
+        sentenceDep = spacyModel(sentence)
         for token in sentenceDep:
             if token.dep_ == "amod":
                 negModifiers.add(token.text.lower())
@@ -121,18 +127,19 @@ VP = [[{"POS": "ADV", "OP": "?"}, {"POS": "VERB", "OP": "+"}, {"POS": "PRON"}, {
 PP = [[{"POS": "ADP"}, {"POS": "DET", "OP": "?"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}],
       [{"POS": "ADP"}, {"POS": "DET", "OP": "?"}, {"POS": "ADJ", "OP": "*"}, {"POS": "PRON"}]]
 
-vpMatcher = Matcher(depParser.vocab)
+vpMatcher = Matcher(spacyModel.vocab)
 vpMatcher.add("VP", VP)
-ppMatcher = Matcher(depParser.vocab)
+ppMatcher = Matcher(spacyModel.vocab)
 ppMatcher.add("PP", PP)
 
 # Extract verb phrases from negative and positive sentences
+print("extracting verb and preposition phrases...")
 negVP = set()
 negPP = set()
 posVP = set()
 posPP = set()
 for sentence in negSentences:
-    sentence = depParser(sentence)
+    sentence = spacyModel(sentence)
     vpMatches = vpMatcher(sentence)
     ppMatches = ppMatcher(sentence)
     for match_id, start, end in vpMatches:
@@ -147,24 +154,25 @@ for sentence in negSentences:
             negPP.add(span.text)
 
 for sentence in posSentences:
-    sentence = depParser(sentence)
+    sentence = spacyModel(sentence)
     vpMatches = vpMatcher(sentence)
     ppMatches = ppMatcher(sentence)
     for match_id, start, end in vpMatches:
         span = sentence[start:end]
         phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] <= -0.7:
+        if phrasePol['compound'] >= 0.5:
             posVP.add(span.text)
     for match_id, start, end in ppMatches:
         span = sentence[start:end]
         phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] <= -0.7:
+        if phrasePol['compound'] >= 0.5:
             posPP.add(span.text)
 
 print(list(negVP))
 print(list(negPP))
 
 # Create CFG rules w/ specific noun and desired descriptors
+print("creating CFG rules...")
 grammarString = """
 S -> XP VP | XP VP PP
 XP -> Det Nom | Nom
@@ -198,7 +206,7 @@ posGrammar = CFG.fromstring(posString)
 negGrammar = CFG.fromstring(negString)
 
 # Generate sentences w/ CFG rules
-print("generating text...")
+print("generating text w/ CFG...")
 generatedNeg = list(generate(negGrammar, n=100000))
 generatedPos = list(generate(posGrammar, n=100000))
 random.shuffle(generatedNeg)
@@ -211,9 +219,9 @@ for sentence in generatedNeg:
         scoredNeg.add(sentence)
 for sentence in generatedPos:
     sentence = ' '.join(sentence)
-    if sa.polarity_scores(sentence)['compound'] >= 0.6:
+    if sa.polarity_scores(sentence)['compound'] >= 0.5:
         scoredPos.add(sentence)
-print(list(scoredPos))
+print(list(scoredNeg))
 
 # Pos tag and convert Noun Phrases to CFG?
 
