@@ -3,7 +3,7 @@ import spacy
 import pandas
 import string
 import random
-from nltk import CFG
+from nltk import CFG, PCFG
 from nltk.corpus import stopwords
 from nltk.parse.generate import generate
 from nltk.sentiment import SentimentIntensityAnalyzer
@@ -34,7 +34,7 @@ initialDF = pandas.read_csv("reddit_pfizer_vaccine.csv", usecols=['body'])
 initialDF.dropna(inplace=True)
 initialDF.reset_index(inplace=True, drop=True)
 
-# Go through DF and retrieve all instances of nouns from text, with DF indices appended
+# Go through 'body' column of DF and retrieve all instances of nouns from text, with DF indices appended
 # Also formats sentences for sentiment analysis and further PoS tagging for phrase extraction
 print("retrieving noun and named entity instances...")
 stemmer = nltk.PorterStemmer()
@@ -45,9 +45,9 @@ allSentences = set()
 modSentences = []
 punct = string.punctuation
 
-for index, row in initialDF.iterrows():
-    row = row.astype(str)
-    text = row['body']
+bodyColumn = initialDF['body'].astype(str).to_list()
+for index, row in enumerate(bodyColumn):
+    text = row
     docSentences = nltk.sent_tokenize(text)
     for sentence in docSentences:
         sentenceDoc = spacyModel(sentence)
@@ -59,7 +59,6 @@ for index, row in initialDF.iterrows():
                     addNounToDict(token.text.lower(), nouns, index)
         for ne in sentenceDoc.ents:
             addNounToDict(ne.text.lower(), namedEntities, index)
-
 
 # Sort noun dictionary by frequency
 print("sorting noun dictionaries...")
