@@ -167,42 +167,44 @@ for sentence in posSentences:
         if phrasePol['compound'] >= 0.5:
             posPP.add(span.text)
 
-print(list(negVP))
-print(list(negPP))
+# print(list(negVP))
+# print(list(negPP))
 
 # Create CFG rules w/ specific noun and desired descriptors
 print("creating CFG rules...")
 grammarString = """
-S -> XP VP | XP VP PP
-XP -> Det Nom | Nom
-Nom -> X | Adj X
-VP -> V Adj
-V -> 'is'
-Det -> 'the'
+S -> XP VP PP [0.7] | XP VP [0.3]
+XP -> Det Nom [0.5] | Nom [0.5]
+Nom -> X [0.5] | Adj X [0.5]
+V -> 'is' [1]
+Det -> 'the' [1]
 """
-grammarString += "\nX -> '" + inputWord + "'"
+grammarString += "\nX -> '" + inputWord + "' [1]"
 posString = grammarString
 negString = grammarString
+posString += "\nVP -> V Adj " + " [" + str(1/(len(posVP) + 1)) + "]"
+negString += "\nVP -> V Adj " + " [" + str(1/(len(negVP) + 1)) + "]"
+
 for mod in posModifiers:
-    posString += "\nAdj -> '" + mod + "'"
+    posString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(posModifiers))) + "]"
 
 for mod in negModifiers:
-    negString += "\nAdj -> '" + mod + "'"
+    negString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(negModifiers))) + "]"
 
 for phrase in list(negVP):
-    negString += "\nVP -> '" + phrase + "'"
+    negString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(negVP) + 1)) + "]"
 
 for phrase in list(posVP):
-    posString += "\nVP -> '" + phrase + "'"
+    posString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(posVP) + 1)) + "]"
 
 for phrase in list(negPP):
-    negString += "\nPP -> '" + phrase + "'"
+    negString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(negPP))) + "]"
 
 for phrase in list(posPP):
-    posString += "\nPP -> '" + phrase + "'"
+    posString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(posPP))) + "]"
 
-posGrammar = CFG.fromstring(posString)
-negGrammar = CFG.fromstring(negString)
+posGrammar = PCFG.fromstring(posString)
+negGrammar = PCFG.fromstring(negString)
 
 # Generate sentences w/ CFG rules
 print("generating text w/ CFG...")
