@@ -24,7 +24,7 @@ def addNounToDict(noun, dictionary, indexSource):
 
 
 # Load in dependency parser
-print("loading dependency parser...")
+print("loading pos tagger and dependency parser...")
 print("Make sure 'en_core_web_sm' is downloaded from spacy, can use '/python -m spacy download en_core_web_sm'")
 spacyModel = spacy.load("en_core_web_sm")
 
@@ -56,7 +56,7 @@ for index, row in enumerate(bodyColumn):
         for token in sentenceDoc:
             if token.pos_ == "NOUN" or token.pos_ == "PROPN":
                 if len(token.text[0]) <= 12:
-                    addNounToDict(token.text.lower(), nouns, index)
+                    addNounToDict(token.text.lower(), nouns, len(allSentences) - 1)
         for ne in sentenceDoc.ents:
             addNounToDict(ne.text.lower(), namedEntities, index)
 
@@ -65,7 +65,8 @@ print("sorting noun dictionaries...")
 descNouns = {key: val for key, val in sorted(nouns.items(), key=lambda element: element[1], reverse=True)}
 descNE = {key: val for key, val in sorted(namedEntities.items(), key=lambda element: element[1], reverse=True)}
 
-# Get top ~25 words and entities referenced and filter out punct.
+# Get top ~25 nouns and entities referenced and filter out punct.
+print("getting top nouns/entities...")
 mostRefNouns = list(descNouns.keys())[0:25]
 refNounsDocs = list(descNouns.values())[0:25]
 refNounsDocs = [x[1] for x in refNounsDocs]
@@ -89,15 +90,37 @@ while True:
     inputWord = input("Enter the word from either list that you wish to use: ")
     if type(inputWord) is str:
         inputWord = inputWord.lower()
-        if inputWord in mostRefNouns or inputWord in mostRefNE:
+        if inputWord in mostRefNouns:
+            nounInstances = list(descNouns[inputWord][1])
+            break
+        elif inputWord in mostRefNE:
+            nounInstances = list(descNE[inputWord][1])
             break
         else:
             print("Please pick a word from either list.")
     else:
         print("Please pick a word from either list.")
 
-# Use nltk sentiment analysis to get instances of neg/pos sentences w/ modifiers
-print("running SA and retrieving modifiers...")
+# Get user choice for desired sentiment
+inputSen = ""
+genPos = False
+while True:
+    inputSen = input("Do you want to generate negative or positive sentiment about this entity? Enter 'n' or 'p': ")
+    if type(inputSen) is str:
+        inputSen = inputSen.lower()
+        if inputSen == 'p':
+            genPos = True
+            break
+        elif inputSen == 'n':
+            genPos = False
+            break
+        else:
+            print("Please enter 'p' for positive or 'n' for negative: ")
+    else:
+        print("Please enter 'p' for positive or 'n' for negative: ")
+
+# Use nltk vader sentiment analysis to get instances of neg/pos sentences w/ modifiers
+print("running sa and retrieving pos/neg modifiers...")
 sa = SentimentIntensityAnalyzer()
 allSentences = list(allSentences)
 negSentences = set()
@@ -107,17 +130,19 @@ posModifiers = set()
 for sentence in allSentences:
     sentencePolarity = sa.polarity_scores(sentence)
     if sentencePolarity['compound'] >= 0.4:
-        posSentences.add(sentence)
-        sentenceDep = spacyModel(sentence)
-        for token in sentenceDep:
-            if token.dep_ == "amod":
-                posModifiers.add(token.text.lower())
+        if genPos:
+            posSentences.add(sentence)
+            sentenceDep = spacyModel(sentence)
+            for token in sentenceDep:
+                if token.dep_ == "amod":
+                    posModifiers.add(token.text.lower())
     elif sentencePolarity['compound'] <= -0.5:
-        negSentences.add(sentence)
-        sentenceDep = spacyModel(sentence)
-        for token in sentenceDep:
-            if token.dep_ == "amod":
-                negModifiers.add(token.text.lower())
+        if not genPos:
+            negSentences.add(sentence)
+            sentenceDep = spacyModel(sentence)
+            for token in sentenceDep:
+                if token.dep_ == "amod":
+                    negModifiers.add(token.text.lower())
 
 # Patterns for verb phrases and preposition phrases
 VP = [[{"POS": "ADV", "OP": "?"}, {"POS": "VERB", "OP": "+"}, {"POS": "PRON"}, {"POS": "VERB", "OP": "*"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "?"}, {"POS": "PRON", "OP": "?"}],
@@ -137,38 +162,36 @@ negVP = set()
 negPP = set()
 posVP = set()
 posPP = set()
-for sentence in negSentences:
-    sentence = spacyModel(sentence)
-    vpMatches = vpMatcher(sentence)
-    ppMatches = ppMatcher(sentence)
-    for match_id, start, end in vpMatches:
-        span = sentence[start:end]
-        phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] <= -0.5:
-            negVP.add(span.text)
-    for match_id, start, end in ppMatches:
-        span = sentence[start:end]
-        phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] <= -0.5:
-            negPP.add(span.text)
-
-for sentence in posSentences:
-    sentence = spacyModel(sentence)
-    vpMatches = vpMatcher(sentence)
-    ppMatches = ppMatcher(sentence)
-    for match_id, start, end in vpMatches:
-        span = sentence[start:end]
-        phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] >= 0.5:
-            posVP.add(span.text)
-    for match_id, start, end in ppMatches:
-        span = sentence[start:end]
-        phrasePol = sa.polarity_scores(span.text)
-        if phrasePol['compound'] >= 0.5:
-            posPP.add(span.text)
-
-# print(list(negVP))
-# print(list(negPP))
+if not genPos:
+    for sentence in negSentences:
+        sentence = spacyModel(sentence)
+        vpMatches = vpMatcher(sentence)
+        ppMatches = ppMatcher(sentence)
+        for match_id, start, end in vpMatches:
+            span = sentence[start:end]
+            phrasePol = sa.polarity_scores(span.text)
+            if phrasePol['compound'] <= -0.5:
+                negVP.add(span.text)
+        for match_id, start, end in ppMatches:
+            span = sentence[start:end]
+            phrasePol = sa.polarity_scores(span.text)
+            if phrasePol['compound'] <= -0.5:
+                negPP.add(span.text)
+else:
+    for sentence in posSentences:
+        sentence = spacyModel(sentence)
+        vpMatches = vpMatcher(sentence)
+        ppMatches = ppMatcher(sentence)
+        for match_id, start, end in vpMatches:
+            span = sentence[start:end]
+            phrasePol = sa.polarity_scores(span.text)
+            if phrasePol['compound'] >= 0.5:
+                posVP.add(span.text)
+        for match_id, start, end in ppMatches:
+            span = sentence[start:end]
+            phrasePol = sa.polarity_scores(span.text)
+            if phrasePol['compound'] >= 0.5:
+                posPP.add(span.text)
 
 # Create CFG rules w/ specific noun and desired descriptors
 print("creating CFG rules...")
@@ -185,45 +208,41 @@ negString = grammarString
 posString += "\nVP -> V Adj " + " [" + str(1/(len(posVP) + 1)) + "]"
 negString += "\nVP -> V Adj " + " [" + str(1/(len(negVP) + 1)) + "]"
 
-for mod in posModifiers:
-    posString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(posModifiers))) + "]"
+if genPos:
+    for mod in posModifiers:
+        posString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(posModifiers))) + "]"
+    for phrase in list(posVP):
+        posString += "\nVP -> '" + phrase + "'" + " [" + str(1 / (len(posVP) + 1)) + "]"
+    for phrase in list(posPP):
+        posString += "\nPP -> '" + phrase + "'" + " [" + str(1 / (len(posPP))) + "]"
+    posGrammar = PCFG.fromstring(posString)
+else:
+    for mod in negModifiers:
+        negString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(negModifiers))) + "]"
+    for phrase in list(negVP):
+        negString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(negVP) + 1)) + "]"
+    for phrase in list(negPP):
+        negString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(negPP))) + "]"
+    negGrammar = PCFG.fromstring(negString)
 
-for mod in negModifiers:
-    negString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(negModifiers))) + "]"
-
-for phrase in list(negVP):
-    negString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(negVP) + 1)) + "]"
-
-for phrase in list(posVP):
-    posString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(posVP) + 1)) + "]"
-
-for phrase in list(negPP):
-    negString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(negPP))) + "]"
-
-for phrase in list(posPP):
-    posString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(posPP))) + "]"
-
-posGrammar = PCFG.fromstring(posString)
-negGrammar = PCFG.fromstring(negString)
 
 # Generate sentences w/ CFG rules
 print("generating text w/ CFG...")
-generatedNeg = list(generate(negGrammar, n=100000))
-generatedPos = list(generate(posGrammar, n=100000))
-random.shuffle(generatedNeg)
-random.shuffle(generatedPos)
-scoredNeg = set()
-scoredPos = set()
-for sentence in generatedNeg:
-    sentence = ' '.join(sentence)
-    if sa.polarity_scores(sentence)['compound'] <= -0.6:
-        scoredNeg.add(sentence)
-for sentence in generatedPos:
-    sentence = ' '.join(sentence)
-    if sa.polarity_scores(sentence)['compound'] >= 0.5:
-        scoredPos.add(sentence)
-print(list(scoredNeg))
-
-# Pos tag and convert Noun Phrases to CFG?
-
-# Use two embedding matrices to harness descriptors for pos. and neg.? Yes, probably do this.
+if genPos:
+    generatedPos = list(generate(posGrammar, n=100000))
+    random.shuffle(generatedPos)
+    scoredPos = set()
+    for sentence in generatedPos:
+        sentence = ' '.join(sentence)
+        if sa.polarity_scores(sentence)['compound'] >= 0.5:
+            scoredPos.add(sentence)
+    print(list(scoredPos))
+else:
+    generatedNeg = list(generate(negGrammar, n=100000))
+    random.shuffle(generatedNeg)
+    scoredNeg = set()
+    for sentence in generatedNeg:
+        sentence = ' '.join(sentence)
+        if sa.polarity_scores(sentence)['compound'] <= -0.6:
+            scoredNeg.add(sentence)
+    print(list(scoredNeg))
