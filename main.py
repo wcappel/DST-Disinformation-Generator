@@ -206,10 +206,8 @@ else:
 print("creating CFG rules...")
 grammarString = """
 S -> XP VP PP | XP VP
-XP -> Det Nom | Nom
-Nom -> X | Adj X
+XP -> X | Adj X
 V -> 'is'
-Det -> 'the'
 VP -> V Adj
 """
 grammarString += "\nX -> '" + inputWord + "'"
