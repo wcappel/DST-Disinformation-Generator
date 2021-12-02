@@ -22,6 +22,19 @@ def addNounToDict(noun, dictionary, indexSource):
         dictionary[noun][1].add(indexSource)
 
 
+# Generates text from CFG by randomly picking a rule at every depth (until a terminal)
+def randomGenerate(grammar, rule):
+    sentence = ''
+    if rule in grammar._lhs_index:
+        subRules = grammar._lhs_index[rule]
+        index = random.randint(0, len(subRules) - 1)
+        for sub in subRules[index]._rhs:
+            sentence += randomGenerate(grammar, sub)
+    else:
+        sentence += " " + rule
+    return sentence
+
+
 # Load in dependency parser
 print("loading pos tagger and dependency parser...")
 print("Make sure 'en_core_web_sm' is downloaded from spacy, can use '/python -m spacy download en_core_web_sm'")
@@ -125,7 +138,7 @@ negModifiers = set()
 posModifiers = set()
 for sentence in allSentences:
     sentencePolarity = sa.polarity_scores(sentence)
-    if sentencePolarity['compound'] >= 0.4:
+    if sentencePolarity['compound'] >= 0.5:
         if genPos:
             posSentences.add(sentence)
             sentenceDep = spacyModel(sentence)
@@ -192,52 +205,62 @@ else:
 # Create CFG rules w/ specific noun and desired descriptors
 print("creating CFG rules...")
 grammarString = """
-S -> XP VP PP [0.7] | XP VP [0.3]
-XP -> Det Nom [0.5] | Nom [0.5]
-Nom -> X [0.5] | Adj X [0.5]
-V -> 'is' [1]
-Det -> 'the' [1]
+S -> XP VP PP | XP VP
+XP -> Det Nom | Nom
+Nom -> X | Adj X
+V -> 'is'
+Det -> 'the'
+VP -> V Adj
 """
-grammarString += "\nX -> '" + inputWord + "' [1]"
+grammarString += "\nX -> '" + inputWord + "'"
 posString = grammarString
 negString = grammarString
-posString += "\nVP -> V Adj " + " [" + str(1/(len(posVP) + 1)) + "]"
-negString += "\nVP -> V Adj " + " [" + str(1/(len(negVP) + 1)) + "]"
 
 if genPos:
     for mod in posModifiers:
-        posString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(posModifiers))) + "]"
+        posString += "\nAdj -> '" + mod + "'"
     for phrase in list(posVP):
-        posString += "\nVP -> '" + phrase + "'" + " [" + str(1 / (len(posVP) + 1)) + "]"
+        posString += "\nVP -> '" + phrase + "'"
     for phrase in list(posPP):
-        posString += "\nPP -> '" + phrase + "'" + " [" + str(1 / (len(posPP))) + "]"
-    posGrammar = PCFG.fromstring(posString)
+        posString += "\nPP -> '" + phrase + "'"
+    posGrammar = CFG.fromstring(posString)
 else:
     for mod in negModifiers:
-        negString += "\nAdj -> '" + mod + "'" + " [" + str(1/(len(negModifiers))) + "]"
+        negString += "\nAdj -> '" + mod + "'"
     for phrase in list(negVP):
-        negString += "\nVP -> '" + phrase + "'" + " [" + str(1/(len(negVP) + 1)) + "]"
+        negString += "\nVP -> '" + phrase + "'"
     for phrase in list(negPP):
-        negString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(negPP))) + "]"
-    negGrammar = PCFG.fromstring(negString)
+        negString += "\nPP -> '" + phrase + "'"
+    negGrammar = CFG.fromstring(negString)
 
 # Generate sentences w/ CFG rules
 print("generating text w/ CFG...")
 if genPos:
-    generatedPos = list(generate(posGrammar, n=100000))
+    generatedPos = []
+    for x in range(1000):
+        generated = randomGenerate(posGrammar, posGrammar.start())[1:]
+        generatedPos.append(generated)
     random.shuffle(generatedPos)
     scoredPos = set()
     for sentence in generatedPos:
-        sentence = ' '.join(sentence)
         if sa.polarity_scores(sentence)['compound'] >= 0.5:
             scoredPos.add(sentence)
-    print(list(scoredPos))
 else:
-    generatedNeg = list(generate(negGrammar, n=100000))
+    generatedNeg = []
+    for x in range(1000):
+        generated = randomGenerate(negGrammar, negGrammar.start())[1:]
+        generatedNeg.append(generated)
     random.shuffle(generatedNeg)
     scoredNeg = set()
     for sentence in generatedNeg:
-        sentence = ' '.join(sentence)
         if sa.polarity_scores(sentence)['compound'] <= -0.6:
             scoredNeg.add(sentence)
-    print(list(scoredNeg))
+
+# Write generated text to 'GENERATED.txt' file
+with open("GENERATED.txt", mode='w') as output:
+    if genPos:
+        genList = scoredPos
+    else:
+        genList = scoredNeg
+    for sentence in genList:
+        output.write(sentence + "\n")
