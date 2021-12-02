@@ -8,9 +8,8 @@ from nltk.corpus import stopwords
 from nltk.parse.generate import generate
 from nltk.sentiment import SentimentIntensityAnalyzer
 from spacy.matcher import Matcher
-# nltk.download('punkt')
-# nltk.download('averaged_perceptron_tagger')
-# nltk.download('vader_lexicon')
+nltk.download('punkt')
+nltk.download('vader_lexicon')
 
 
 # Adds noun to dictionary with frequency and document source index
@@ -70,15 +69,12 @@ print("getting top nouns/entities...")
 mostRefNouns = list(descNouns.keys())[0:25]
 refNounsDocs = list(descNouns.values())[0:25]
 refNounsDocs = [x[1] for x in refNounsDocs]
-
 mostRefNE = list(descNE.keys())[0:25]
 refNEDocs = list(descNE.values())[0:25]
 refNEDocs = [x[1] for x in refNEDocs]
-
 for word in mostRefNouns:
     if len(word) <= 1:
         mostRefNouns.remove(word)
-
 for word in mostRefNE:
     if len(word) <= 1:
         mostRefNE.remove(word)
@@ -224,7 +220,6 @@ else:
     for phrase in list(negPP):
         negString += "\nPP -> '" + phrase + "'" + " [" + str(1/(len(negPP))) + "]"
     negGrammar = PCFG.fromstring(negString)
-
 
 # Generate sentences w/ CFG rules
 print("generating text w/ CFG...")
