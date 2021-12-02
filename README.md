@@ -1,7 +1,6 @@
-a. A brief overview of how your code is structured.
-b. How to compile, set up, deploy, and use your system.
-c. Any limitations in your current implementation (e.g. any assumptions you made;
-anything I should not do to break your system, etc.).
+## DSTDG (Domain-specific, targeted disinformation generator)
+
+(purely a programming exercise, no malicious intent whatsoever)
 
 Code is structured as a script that begins with reading in a .csv file—this particular instance uses data from the r/pfizervaccine subreddit scraped and formatted by Gabriel Preda (link to dataset: https://www.kaggle.com/gpreda/pfizer-vaccine-on-reddit), but it can applied to other datasets as long as the format of the file is the same. Once the body of the posts has been read in, it then pos tags and uses NER to find frequently referenced entities. Afterwards, it selects user input for criteria such as desired noun and sentiment to generate text around. Then it runs sentiment analysis in tandem w/ dependency parsing to extract sentiment-specific modifiers. Next it uses two regexes on pos tagging data to extract sentiment-specific verb phrases and preposition phrases. Then it uses probabilistic CFG rules to generate text.
 
